@@ -1,3 +1,28 @@
+import { firebaseConfig, adminEmail } from "./config.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  getFirestore,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+
 (function () {
   "use strict";
 
@@ -26,7 +51,9 @@
     });
   });
 
-  const products = [];
+  let products = [];
+  let currentAdmin = null;
+  let selectedProduct = null;
 
   const elements = {
     headerSearch: document.querySelector("#header-search"),
@@ -48,12 +75,24 @@
     dialogDescription: document.querySelector("#dialog-description"),
     dialogPrice: document.querySelector("#dialog-price"),
     dialogAvailability: document.querySelector("#dialog-availability"),
+    dialogContact: document.querySelector("#dialog-contact"),
+    dialogDisclaimer: document.querySelector("#dialog-disclaimer"),
     adminDialog: document.querySelector("#admin-dialog"),
+    adminLoginForm: document.querySelector("#admin-login-form"),
+    adminEmail: document.querySelector("#admin-email"),
+    adminLoginMessage: document.querySelector("#admin-login-message"),
+    adminVerifyResend: document.querySelector("#admin-verify-resend"),
+    adminWorkspace: document.querySelector("#admin-workspace"),
+    adminSessionEmail: document.querySelector("#admin-session-email"),
+    adminLogout: document.querySelector("#admin-logout"),
     adminForm: document.querySelector("#admin-form"),
+    adminCategory: document.querySelector("#admin-category"),
+    adminAccountFields: Array.from(document.querySelectorAll("[data-account-fields]")),
     adminRank: document.querySelector("#admin-rank"),
     adminTier: document.querySelector("#admin-tier"),
     adminPreview: document.querySelector("#admin-preview"),
     adminPreviewContent: document.querySelector("#admin-preview-content"),
+    adminInventory: document.querySelector("#admin-inventory"),
     status: document.querySelector("#status-message"),
     menuToggle: document.querySelector("#menu-toggle"),
     nav: document.querySelector("#primary-nav")
@@ -73,6 +112,130 @@
     statusTimer = window.setTimeout(function () {
       elements.status.classList.remove("is-visible");
     }, 4200);
+  }
+
+  function isAdminUser(user) {
+    return Boolean(
+      user &&
+      user.email &&
+      user.email.toLocaleLowerCase("en-US") === adminEmail.toLocaleLowerCase("en-US") &&
+      user.emailVerified
+    );
+  }
+
+  function setAdminLoginMessage(message, showVerifyButton) {
+    elements.adminLoginMessage.textContent = message;
+    elements.adminVerifyResend.hidden = !showVerifyButton;
+  }
+
+  function updateAdminAccess() {
+    const hasAdminAccess = isAdminUser(currentAdmin);
+    elements.adminLoginForm.hidden = hasAdminAccess;
+    elements.adminWorkspace.hidden = !hasAdminAccess;
+    elements.adminEmail.value = adminEmail;
+
+    if (hasAdminAccess) {
+      elements.adminSessionEmail.textContent = currentAdmin.email;
+      setAdminLoginMessage("Acesso restrito ao administrador.", false);
+    }
+  }
+
+  function productCategoryLabel(category) {
+    return category === "skins" ? "Skins" : "Contas";
+  }
+
+  function productRankLabel(product) {
+    if (!product.rank) return "";
+    const rank = rankNames.find(function (item) { return item.key === product.rank; });
+    if (!rank) return "";
+    if (product.rank === "radiante") return rank.name;
+    const tier = product.tier ? " " + product.tier : "";
+    return rank.name + tier;
+  }
+
+  function normalizeProduct(id, data) {
+    return Object.assign({}, data, {
+      id: id,
+      categoryLabel: productCategoryLabel(data.category),
+      rankLabel: productRankLabel(data),
+      availability: data.status === "sold" ? "Indisponível" : "Disponível"
+    });
+  }
+
+  async function loadProducts() {
+    const productsRef = collection(db, "products");
+    const productsQuery = currentAdmin
+      ? productsRef
+      : query(productsRef, where("published", "==", true));
+
+    try {
+      const snapshot = await getDocs(productsQuery);
+      products = snapshot.docs.map(function (productDocument) {
+        return normalizeProduct(productDocument.id, productDocument.data());
+      });
+      renderProducts();
+      if (currentAdmin) renderAdminInventory();
+    } catch (error) {
+      products = [];
+      renderProducts();
+      showStatus("Não foi possível carregar o catálogo do Firebase. Verifique a configuração e as regras do Firestore.");
+      console.error("Failed to load the public product catalog.", error);
+    }
+  }
+
+  function authErrorMessage(errorCode) {
+    const messages = {
+      "auth/invalid-credential": "E-mail ou senha incorretos.",
+      "auth/invalid-email": "Informe um e-mail válido.",
+      "auth/operation-not-allowed": "Ative o provedor E-mail/Senha no Firebase Authentication.",
+      "auth/too-many-requests": "Muitas tentativas. Aguarde antes de tentar novamente.",
+      "auth/network-request-failed": "Falha de conexão. Verifique sua internet e tente novamente."
+    };
+    return messages[errorCode] || "Não foi possível autenticar. Verifique o provedor de login no Firebase.";
+  }
+
+  function renderAdminInventory() {
+    const rows = products.map(function (product) {
+      const item = document.createElement("article");
+      item.className = "admin-inventory-item";
+
+      const details = document.createElement("div");
+      details.className = "admin-inventory-details";
+      const title = document.createElement("strong");
+      title.textContent = product.name;
+      const state = document.createElement("span");
+      state.textContent = (product.published ? "Publicado" : "Oculto") + " · "
+        + (product.status === "sold" ? "Vendido" : "Disponível");
+      details.append(title, state);
+
+      const actions = document.createElement("div");
+      actions.className = "admin-inventory-actions";
+      [
+        { field: "status", value: product.status === "sold" ? "available" : "sold",
+          label: product.status === "sold" ? "Reativar" : "Marcar vendido" },
+        { field: "published", value: !product.published,
+          label: product.published ? "Ocultar" : "Publicar" }
+      ].forEach(function (action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button-quiet";
+        button.dataset.productId = product.id;
+        button.dataset.field = action.field;
+        button.dataset.value = String(action.value);
+        button.textContent = action.label;
+        actions.append(button);
+      });
+
+      item.append(details, actions);
+      return item;
+    });
+    elements.adminInventory.replaceChildren.apply(elements.adminInventory, rows);
+    if (rows.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "admin-inventory-empty";
+      empty.textContent = "Nenhum produto cadastrado.";
+      elements.adminInventory.append(empty);
+    }
   }
 
   function productCard(product) {
@@ -113,7 +276,11 @@
     price.textContent = currency.format(product.price);
     const availability = document.createElement("span");
     availability.className = "product-availability";
-    availability.textContent = product.availability || "Disponibilidade a confirmar";
+    availability.textContent = product.status === "sold"
+      ? "Indisponível"
+      : product.checkoutUrl
+        ? "Disponível para compra"
+        : "Checkout pendente";
 
     const details = document.createElement("button");
     details.type = "button";
@@ -134,8 +301,8 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "admin-entry-card";
-    button.setAttribute("aria-label", "Abrir painel local de cadastro de conta");
-    button.innerHTML = '<span class="admin-entry-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span><strong>Cadastrar conta</strong><span>Adicionar características e gerar uma prévia local</span>';
+    button.setAttribute("aria-label", "Abrir painel administrativo");
+    button.innerHTML = '<span class="admin-entry-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span><strong>Painel administrativo</strong><span>Entre para cadastrar e gerenciar produtos</span>';
     button.addEventListener("click", openAdminDialog);
     return button;
   }
@@ -145,12 +312,13 @@
     const category = elements.category.querySelector("input:checked").value;
     const selectedRank = elements.rankTrack.dataset.selectedRank || "all";
     const matching = products.filter(function (product) {
+      if (!product.published) return false;
       const matchesQuery = (product.name + " " + product.description + " " + product.categoryLabel)
         .toLocaleLowerCase("pt-BR")
         .includes(query);
       return matchesQuery
         && (category === "all" || product.category === category)
-        && (selectedRank === "all" || product.rank === selectedRank);
+        && (selectedRank === "all" || product.rank === selectedRank.replace(/-(i{1,3})$/i, ""));
     });
 
     if (elements.sort.value === "price-asc") {
@@ -174,11 +342,11 @@
     elements.emptyClear.hidden = products.length === 0;
     if (products.length === 0) {
       if (showAdminEntry) {
-        elements.count.textContent = "Painel de cadastro local";
+        elements.count.textContent = "Painel administrativo";
       } else {
-        elements.count.textContent = "0 produtos cadastrados";
-        elements.emptyTitle.textContent = "Estamos preparando o catálogo";
-        elements.emptyDescription.textContent = "Produtos, preços e disponibilidade serão publicados após cadastro e validação. As compras ainda não estão habilitadas.";
+        elements.count.textContent = "0 produtos publicados";
+        elements.emptyTitle.textContent = "Nenhum produto publicado";
+        elements.emptyDescription.textContent = "Os produtos aparecerão aqui assim que forem publicados pelo painel administrativo.";
       }
     } else {
       elements.count.textContent = visibleProducts.length + (visibleProducts.length === 1 ? " produto encontrado" : " produtos encontrados");
@@ -245,22 +413,40 @@
   }
 
   function openProduct(product) {
+    selectedProduct = product;
     elements.dialogCategory.textContent = product.categoryLabel.toLocaleUpperCase("pt-BR");
     elements.dialogTitle.textContent = product.name;
     elements.dialogDescription.textContent = product.description;
     elements.dialogPrice.textContent = currency.format(product.price);
-    elements.dialogAvailability.textContent = product.availability;
+    elements.dialogAvailability.textContent = product.status === "sold" ? "Produto indisponível" : "Produto disponível";
+    if (product.status === "sold") {
+      elements.dialogContact.textContent = "Produto indisponível";
+      elements.dialogContact.disabled = true;
+      elements.dialogDisclaimer.textContent = "Este produto não está disponível para compra.";
+    } else if (product.checkoutUrl) {
+      elements.dialogContact.textContent = "Ir ao checkout Kiwify";
+      elements.dialogContact.disabled = false;
+      elements.dialogDisclaimer.textContent = "Você será encaminhado ao checkout da Kiwify. O retorno do checkout não confirma pagamento nem entrega.";
+    } else {
+      elements.dialogContact.textContent = "Checkout pendente";
+      elements.dialogContact.disabled = true;
+      elements.dialogDisclaimer.textContent = "O link de checkout deste produto ainda não foi configurado.";
+    }
     elements.dialog.showModal();
   }
 
   function openAdminDialog() {
+    updateAdminAccess();
     elements.adminForm.reset();
+    elements.adminCategory.value = "contas";
     elements.adminRank.value = rankNames[0].key;
     elements.adminTier.disabled = false;
     elements.adminTier.value = "1";
+    updateAdminCategory();
     elements.adminPreview.hidden = true;
     elements.adminPreviewContent.textContent = "";
     elements.adminDialog.showModal();
+    if (currentAdmin) loadProducts();
   }
 
   function activateAdminShortcut(value) {
@@ -297,8 +483,19 @@
   function updateAdminTier() {
     const isRadiant = elements.adminRank.value === "radiante";
     elements.adminTier.disabled = isRadiant;
-    if (isRadiant) elements.adminTier.value = "";
+    if (isRadiant) elements.adminTier.value = "Único";
     else if (!["1", "2", "3"].includes(elements.adminTier.value)) elements.adminTier.value = "1";
+  }
+
+  function updateAdminCategory() {
+    const isAccount = elements.adminCategory.value === "contas";
+    elements.adminAccountFields.forEach(function (field) {
+      const input = field.querySelector("input, select");
+      field.hidden = !isAccount;
+      input.required = isAccount && ["level", "rank", "tier"].includes(input.name);
+      input.disabled = !isAccount;
+    });
+    updateAdminTier();
   }
 
   function configuredWhatsappPhone() {
@@ -349,28 +546,149 @@
     }
   });
   elements.adminRank.addEventListener("change", updateAdminTier);
-  elements.adminForm.addEventListener("submit", function (event) {
+  elements.adminCategory.addEventListener("change", updateAdminCategory);
+  elements.adminLoginForm.addEventListener("submit", async function (event) {
     event.preventDefault();
+    const formData = new FormData(elements.adminLoginForm);
+    const email = String(formData.get("email")).trim().toLocaleLowerCase("en-US");
+    const password = String(formData.get("password"));
+    if (email !== adminEmail.toLocaleLowerCase("en-US")) {
+      setAdminLoginMessage("Este painel é restrito ao e-mail administrador autorizado.", false);
+      return;
+    }
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      elements.adminLoginForm.elements.password.value = "";
+      if (!credential.user.emailVerified) {
+        await sendEmailVerification(credential.user);
+        setAdminLoginMessage("Enviamos um link de verificação ao e-mail administrador. Verifique a caixa de entrada e clique em “Reenviar verificação de e-mail” após confirmar.", true);
+        return;
+      }
+      currentAdmin = credential.user;
+      updateAdminAccess();
+      await loadProducts();
+    } catch (error) {
+      elements.adminLoginForm.elements.password.value = "";
+      setAdminLoginMessage(authErrorMessage(error.code), false);
+    }
+  });
+  elements.adminVerifyResend.addEventListener("click", async function () {
+    const user = auth.currentUser;
+    if (!user || user.email.toLocaleLowerCase("en-US") !== adminEmail.toLocaleLowerCase("en-US")) {
+      setAdminLoginMessage("Entre com o e-mail administrador para verificar o acesso.", false);
+      return;
+    }
+
+    try {
+      await user.reload();
+      if (!user.emailVerified) {
+        await sendEmailVerification(user);
+        setAdminLoginMessage("Enviamos um novo link de verificação. Confira seu e-mail e tente novamente.", true);
+        return;
+      }
+      await user.getIdToken(true);
+      currentAdmin = user;
+      updateAdminAccess();
+      await loadProducts();
+    } catch (error) {
+      setAdminLoginMessage("Não foi possível verificar o e-mail. Tente novamente mais tarde.", true);
+      console.error("Failed to refresh administrator verification.", error);
+    }
+  });
+  elements.adminLogout.addEventListener("click", async function () {
+    try {
+      await signOut(auth);
+      currentAdmin = null;
+      updateAdminAccess();
+      showStatus("Sessão administrativa encerrada.");
+    } catch (error) {
+      showStatus("Não foi possível encerrar a sessão. Tente novamente.");
+      console.error("Failed to sign out the administrator.", error);
+    }
+  });
+  elements.adminForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (!isAdminUser(currentAdmin)) {
+      showStatus("Entre com a conta administradora para cadastrar produtos.");
+      return;
+    }
     if (!elements.adminForm.reportValidity()) return;
 
     const formData = new FormData(elements.adminForm);
-    const rank = rankNames.find(function (item) { return item.key === formData.get("rank"); });
-    const tier = elements.adminTier.disabled ? "Único" : formData.get("tier");
-    const price = currency.format(Number(formData.get("price")));
-    const agents = formData.get("agents") || "Não informado";
-    const cosmetics = formData.get("cosmetics") || "Não informado";
-    const summary = [
-      String(formData.get("name")).trim(),
-      "Patente: " + rank.name + (tier === "Único" ? "" : " " + tier),
-      "Nível: " + formData.get("level"),
-      "Preço informado: " + price,
-      "Agentes desbloqueados: " + agents,
-      "Itens cosméticos: " + cosmetics,
-      "Descrição: " + String(formData.get("description")).trim(),
-      "Prévia temporária: nada foi salvo, publicado ou enviado."
-    ];
-    elements.adminPreviewContent.textContent = summary.join("\n");
-    elements.adminPreview.hidden = false;
+    const category = String(formData.get("category"));
+    const rank = category === "contas" ? String(formData.get("rank")) : "";
+    const checkoutUrl = String(formData.get("checkoutUrl")).trim();
+    if (checkoutUrl && new URL(checkoutUrl).protocol !== "https:") {
+      showStatus("O link do checkout precisa usar HTTPS.");
+      return;
+    }
+
+    const productData = {
+      name: String(formData.get("name")).trim(),
+      description: String(formData.get("description")).trim(),
+      category: category,
+      price: Number(formData.get("price")),
+      rank: rank,
+      tier: category !== "contas" ? "" : rank === "radiante" ? "Único" : String(formData.get("tier")),
+      level: category !== "contas" ? 0 : Number(formData.get("level")),
+      agents: category !== "contas" ? 0 : Number(formData.get("agents") || 0),
+      cosmetics: category !== "contas" ? 0 : Number(formData.get("cosmetics") || 0),
+      checkoutUrl: checkoutUrl,
+      published: true,
+      status: "available",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, "products"), productData);
+      elements.adminForm.reset();
+      elements.adminCategory.value = "contas";
+      elements.adminRank.value = rankNames[0].key;
+      elements.adminTier.value = "1";
+      updateAdminCategory();
+      elements.adminPreviewContent.textContent = "O produto foi publicado e já está visível no catálogo.";
+      elements.adminPreview.hidden = false;
+      await loadProducts();
+      showStatus("Produto publicado no catálogo.");
+    } catch (error) {
+      showStatus("Não foi possível publicar o produto. Confira as regras do Firestore e o acesso de administrador.");
+      console.error("Failed to create a catalog product.", error);
+    }
+  });
+  elements.adminInventory.addEventListener("click", async function (event) {
+    const button = event.target.closest("button[data-product-id]");
+    if (!button || !isAdminUser(currentAdmin)) return;
+    const field = button.dataset.field;
+    const value = field === "published" ? button.dataset.value === "true" : button.dataset.value;
+
+    try {
+      await updateDoc(doc(db, "products", button.dataset.productId), {
+        [field]: value,
+        updatedAt: serverTimestamp()
+      });
+      await loadProducts();
+      showStatus("Produto atualizado.");
+    } catch (error) {
+      showStatus("Não foi possível atualizar o produto. Tente novamente.");
+      console.error("Failed to update a catalog product.", error);
+    }
+  });
+  onAuthStateChanged(auth, function (user) {
+    currentAdmin = isAdminUser(user) ? user : null;
+    updateAdminAccess();
+    if (user && user.email && user.email.toLocaleLowerCase("en-US") !== adminEmail.toLocaleLowerCase("en-US")) {
+      signOut(auth).catch(function (error) {
+        console.error("Failed to reject a non-administrator session.", error);
+      });
+    } else if (user && !user.emailVerified) {
+      setAdminLoginMessage("O e-mail administrador precisa ser verificado antes de acessar o painel.", true);
+    }
+    loadProducts();
+  }, function (error) {
+    showStatus("Não foi possível confirmar a sessão administrativa.");
+    console.error("Failed to observe Firebase Authentication state.", error);
   });
   document.querySelector("#admin-close").addEventListener("click", function () {
     elements.adminDialog.close();
@@ -435,9 +753,16 @@
       elements.dialog.close();
     }
   });
-  document.querySelector("#dialog-contact").addEventListener("click", function () {
+  elements.dialogContact.addEventListener("click", function () {
+    if (!selectedProduct || selectedProduct.status === "sold" || !selectedProduct.checkoutUrl) return;
+    const checkoutUrl = new URL(selectedProduct.checkoutUrl);
+    if (checkoutUrl.protocol !== "https:") {
+      showStatus("O link de checkout não é seguro. Avise o atendimento.");
+      return;
+    }
+    window.open(checkoutUrl.href, "_blank", "noopener,noreferrer");
     elements.dialog.close();
-    showStatus("Pedidos ainda indisponíveis. O checkout permanece em configuração.");
+    showStatus("Checkout aberto. A confirmação do pagamento depende da Kiwify.");
   });
 
   ["#header-contact", "#footer-contact"].forEach(function (selector) {
@@ -516,8 +841,10 @@
   window.addEventListener("hashchange", updateNavigation);
 
   document.querySelector("#current-year").textContent = String(new Date().getFullYear());
+  elements.adminEmail.value = adminEmail;
+  elements.adminEmail.readOnly = true;
   initializeAdminForm();
-  updateAdminTier();
+  updateAdminCategory();
   renderRanks();
   renderProducts();
   updateNavigation();

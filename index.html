@@ -8,8 +8,7 @@
   <title>HIPENOX — Loja gamer</title>
   <link rel="icon" type="image/png" href="public/images/hipenox-mark.png">
   <link rel="stylesheet" href="css/style.css">
-  <script src="js/config.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script type="module" src="js/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
@@ -136,13 +135,13 @@
                 <option value="price-desc">Maior preço</option>
               </select>
             </div>
-            <p class="sidebar-note">O catálogo e o checkout ainda estão sendo configurados.</p>
+            <p class="sidebar-note">Produtos publicados ficam visíveis para todos. Compras usam o link de checkout informado em cada produto.</p>
           </aside>
 
           <div class="catalog-results">
             <div class="catalog-meta">
               <p id="results-count" aria-live="polite"></p>
-              <p>Produtos, preços e disponibilidade serão publicados após validação.</p>
+              <p>Produtos publicados são visíveis para todos; o status de compra depende da Kiwify.</p>
             </div>
             <div class="product-grid" id="product-grid"></div>
             <div class="empty-state" id="empty-state" hidden>
@@ -160,16 +159,16 @@
       <div class="container payment-panel">
         <div class="payment-copy">
           <p class="eyebrow">TRANSPARÊNCIA EM PRIMEIRO LUGAR</p>
-          <h2 id="payment-title">Pagamentos em<br>configuração.</h2>
-          <p>O checkout ainda não está conectado. A loja não está aceitando pedidos ou pagamentos neste momento.</p>
+          <h2 id="payment-title">Checkout por<br>produto.</h2>
+          <p>Produtos com link configurado encaminham ao checkout da Kiwify. O webhook ainda não confirma pedidos nem libera entregas automaticamente.</p>
         </div>
         <div class="payment-status">
           <span class="status-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
           </span>
           <div>
-            <strong>Provedor não conectado</strong>
-            <span>Integração de pagamento pendente</span>
+            <strong>Confirmação pendente</strong>
+            <span>Webhook registra eventos, sem entrega automática</span>
           </div>
           <span class="status-pill">PENDENTE</span>
         </div>
@@ -208,7 +207,7 @@
     </div>
     <div class="container footer-bottom">
       <span>© <span id="current-year"></span> HIPENOX</span>
-      <span>Catálogo e pagamentos em configuração</span>
+      <span>Catálogo público · painel administrativo restrito</span>
     </div>
   </footer>
 
@@ -232,55 +231,90 @@
 
   <dialog class="admin-dialog" id="admin-dialog" aria-labelledby="admin-title">
     <div class="admin-panel">
-      <button class="dialog-close" id="admin-close" type="button" aria-label="Fechar cadastro">×</button>
+      <button class="dialog-close" id="admin-close" type="button" aria-label="Fechar painel administrativo">×</button>
       <div class="admin-heading">
-        <p class="eyebrow">PAINEL LOCAL · NÃO PUBLICADO</p>
-        <h2 id="admin-title">Cadastrar conta</h2>
-        <p>Preencha apenas características não sensíveis. Este rascunho não é salvo nem publicado.</p>
+        <p class="eyebrow">PAINEL ADMINISTRATIVO</p>
+        <h2 id="admin-title">Gerenciar catálogo</h2>
+        <p>Entre com o e-mail administrador autorizado para cadastrar e atualizar produtos publicados.</p>
       </div>
-      <form class="admin-form" id="admin-form">
+      <form class="admin-form admin-login-form" id="admin-login-form">
         <label class="admin-field admin-field-full">
-          <span>Nome do anúncio</span>
-          <input name="name" type="text" maxlength="70" required placeholder="Ex.: Conta competitiva">
-        </label>
-        <label class="admin-field">
-          <span>Preço (R$)</span>
-          <input name="price" type="number" min="0.01" step="0.01" required placeholder="0,00">
-        </label>
-        <label class="admin-field">
-          <span>Nível da conta</span>
-          <input name="level" type="number" min="1" max="999" step="1" required placeholder="Ex.: 120">
-        </label>
-        <label class="admin-field">
-          <span>Patente</span>
-          <select name="rank" id="admin-rank" required></select>
-        </label>
-        <label class="admin-field">
-          <span>Divisão</span>
-          <select name="tier" id="admin-tier" required>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-        </label>
-        <label class="admin-field">
-          <span>Agentes desbloqueados</span>
-          <input name="agents" type="number" min="0" max="100" step="1" placeholder="Opcional">
-        </label>
-        <label class="admin-field">
-          <span>Itens cosméticos</span>
-          <input name="cosmetics" type="number" min="0" max="999" step="1" placeholder="Opcional">
+          <span>E-mail administrador</span>
+          <input id="admin-email" name="email" type="email" autocomplete="username" maxlength="254" required>
         </label>
         <label class="admin-field admin-field-full">
-          <span>Descrição</span>
-          <textarea name="description" rows="3" maxlength="500" required placeholder="Descreva as características do anúncio, sem dados de acesso."></textarea>
+          <span>Senha</span>
+          <input name="password" type="password" autocomplete="current-password" required>
         </label>
-        <p class="admin-warning admin-field-full">Atalho visual local, não é autenticação e não protege o painel. Não inclua e-mails, nomes de usuário, senhas, códigos de recuperação ou outros dados de acesso. Não há checkout nem entrega automática configurados.</p>
-        <button class="button button-primary admin-submit admin-field-full" type="submit">Gerar prévia local</button>
+        <p class="admin-warning admin-field-full" id="admin-login-message" aria-live="polite">O acesso é restrito ao e-mail administrador configurado no Firebase. Não existe cadastro público de administradores.</p>
+        <button class="button button-primary admin-submit admin-field-full" type="submit">Entrar</button>
+        <button class="button button-quiet admin-submit admin-field-full" id="admin-verify-resend" type="button" hidden>Reenviar verificação de e-mail</button>
       </form>
-      <section class="admin-preview" id="admin-preview" aria-live="polite" hidden>
-        <h3>Prévia interna — não publicada</h3>
-        <p id="admin-preview-content"></p>
+      <section id="admin-workspace" hidden>
+        <div class="admin-session">
+          <p id="admin-session-email"></p>
+          <button class="button button-quiet" id="admin-logout" type="button">Sair</button>
+        </div>
+        <form class="admin-form" id="admin-form">
+          <label class="admin-field admin-field-full">
+            <span>Nome do produto</span>
+            <input name="name" type="text" maxlength="70" required placeholder="Ex.: Produto competitivo">
+          </label>
+          <label class="admin-field">
+            <span>Categoria</span>
+            <select name="category" id="admin-category" required>
+              <option value="contas">Contas</option>
+              <option value="skins">Skins</option>
+            </select>
+          </label>
+          <label class="admin-field">
+            <span>Preço (R$)</span>
+            <input name="price" type="number" min="0.01" max="100000" step="0.01" required placeholder="0,00">
+          </label>
+          <label class="admin-field" data-account-fields>
+            <span>Nível</span>
+            <input name="level" type="number" min="1" max="999" step="1" placeholder="Ex.: 120">
+          </label>
+          <label class="admin-field" data-account-fields>
+            <span>Patente</span>
+            <select name="rank" id="admin-rank"></select>
+          </label>
+          <label class="admin-field" data-account-fields>
+            <span>Divisão</span>
+            <select name="tier" id="admin-tier">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="Único">Único</option>
+            </select>
+          </label>
+          <label class="admin-field" data-account-fields>
+            <span>Agentes desbloqueados</span>
+            <input name="agents" type="number" min="0" max="100" step="1" placeholder="Opcional">
+          </label>
+          <label class="admin-field" data-account-fields>
+            <span>Itens cosméticos</span>
+            <input name="cosmetics" type="number" min="0" max="999" step="1" placeholder="Opcional">
+          </label>
+          <label class="admin-field admin-field-full">
+            <span>Descrição</span>
+            <textarea name="description" rows="3" maxlength="500" required placeholder="Descreva o produto, sem dados de acesso."></textarea>
+          </label>
+          <label class="admin-field admin-field-full">
+            <span>Link de checkout Kiwify (opcional)</span>
+            <input name="checkoutUrl" type="url" maxlength="2048" pattern="https://.*" placeholder="https://..." title="Informe um link HTTPS oficial do checkout">
+          </label>
+          <p class="admin-warning admin-field-full">Não cadastre senhas, e-mails, códigos de recuperação ou credenciais de jogo. Produtos publicados ficam visíveis para todos. Links do checkout apenas redirecionam à Kiwify; aprovação e entrega automática ainda não estão integradas.</p>
+          <button class="button button-primary admin-submit admin-field-full" type="submit">Publicar produto</button>
+        </form>
+        <section class="admin-preview" id="admin-preview" aria-live="polite" hidden>
+          <h3>Catálogo atualizado</h3>
+          <p id="admin-preview-content"></p>
+        </section>
+        <section class="admin-inventory-section" aria-labelledby="admin-inventory-title">
+          <h3 id="admin-inventory-title">Produtos cadastrados</h3>
+          <div class="admin-inventory" id="admin-inventory"></div>
+        </section>
       </section>
     </div>
   </dialog>
@@ -298,8 +332,8 @@
           <strong id="dialog-price"></strong>
         </div>
         <p class="dialog-availability" id="dialog-availability"></p>
-        <button class="button button-primary dialog-contact" id="dialog-contact" type="button">Pedidos indisponíveis</button>
-        <p class="dialog-disclaimer">O checkout será habilitado após a integração e validação dos pagamentos.</p>
+        <button class="button button-primary dialog-contact" id="dialog-contact" type="button">Checkout pendente</button>
+        <p class="dialog-disclaimer" id="dialog-disclaimer">Quando configurado, este botão encaminha ao checkout da Kiwify. O retorno do checkout não confirma pagamento.</p>
       </div>
     </div>
   </dialog>

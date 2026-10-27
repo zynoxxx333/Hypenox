@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Assumed data model:
+    // products/{productId} contains only public product metadata:
+    // name (string, 1-70), description (string, 1-500), category (contas|skins),
+    // price (number, 0.01-100000), rank/tier/level/agents/cosmetics (validated
+    // display metadata), checkoutUrl (empty or HTTPS, max 2048), published
+    // (boolean), status (available|sold), createdAt and updatedAt (timestamps).
+    // Never store game login credentials, buyer data, or delivery secrets here.
+    //
+    // kiwifyWebhookEvents/{eventId} is server-written audit data. Clients have
+    // no access; the Admin SDK in Cloud Functions bypasses these rules.
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated()
+        && request.auth.token.email == 'tronux27@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAdmin();
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data)
+        || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data)
+        || request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasValidProductFields(data) {
+      return data.keys().hasAll([
+          'name', 'description', 'category', 'price', 'rank', 'tier', 'level',
+          'agents', 'cosmetics', 'checkoutUrl', 'published', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'name', 'description', 'category', 'price', 'rank', 'tier', 'level',
+          'agents', 'cosmetics', 'checkoutUrl', 'published', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 70
+        && data.description is string
+        && data.description.size() >= 1
+        && data.description.size() <= 500
+        && data.category in ['contas', 'skins']
+        && data.price is number
+        && data.price >= 0.01
+        && data.price <= 100000
+        && data.rank in ['', 'ferro', 'bronze', 'prata', 'ouro', 'platina',
+          'diamante', 'ascendente', 'imortal', 'radiante']
+        && data.tier in ['', '1', '2', '3', 'Único']
+        && data.level is number
+        && data.level >= 0
+        && data.level <= 999
+        && data.agents is number
+        && data.agents >= 0
+        && data.agents <= 100
+        && data.cosmetics is number
+        && data.cosmetics >= 0
+        && data.cosmetics <= 999
+        && data.checkoutUrl is string
+        && data.checkoutUrl.size() <= 2048
+        && (data.checkoutUrl == ''
+          || data.checkoutUrl.matches('^https://.*$'))
+        && data.published is bool
+        && data.status in ['available', 'sold']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (
+          (data.category == 'contas'
+            && data.rank in ['ferro', 'bronze', 'prata', 'ouro', 'platina',
+              'diamante', 'ascendente', 'imortal', 'radiante']
+            && data.level >= 1
+            && ((data.rank == 'radiante' && data.tier == 'Único')
+              || (data.rank != 'radiante' && data.tier in ['1', '2', '3'])))
+          || (data.category == 'skins'
+            && data.rank == ''
+            && data.tier == ''
+            && data.level == 0
+            && data.agents == 0
+            && data.cosmetics == 0)
+        );
+    }
+
+    function isValidProduct(data) {
+      return hasValidProductFields(data);
+    }
+
+    function isValidProductCreate(data) {
+      return isValidProduct(data)
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidProductUpdate(data) {
+      return isValidProduct(data)
+        && data.createdAt == resource.data.createdAt
+        && data.updatedAt == request.time;
+    }
+
+    match /products/{productId} {
+      allow get, list: if isAdmin() || resource.data.published == true;
+      allow create: if isAdmin()
+        && isOwner(request.auth.uid)
+        && uidUnchanged()
+        && isValidProductCreate(request.resource.data);
+      allow update: if isDocOwner()
+        && uidNotModified()
+        && isValidProductUpdate(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /kiwifyWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
