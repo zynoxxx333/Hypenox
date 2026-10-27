@@ -27,15 +27,15 @@ const db = getFirestore(firebaseApp);
   "use strict";
 
   const rankNames = [
-    { name: "Ferro", key: "ferro", image: "ferro-3.webp" },
-    { name: "Bronze", key: "bronze", image: "bronze-3.webp" },
-    { name: "Prata", key: "prata", image: "prata-3.webp" },
-    { name: "Ouro", key: "ouro", image: "ouro-3.webp" },
-    { name: "Platina", key: "platina", image: "platina-3.webp" },
-    { name: "Diamante", key: "diamante", image: "diamante-3.webp" },
-    { name: "Ascendente", key: "ascendente", image: "ascendente-3.webp" },
-    { name: "Imortal", key: "imortal", image: "imortal-3.webp" },
-    { name: "Radiante", key: "radiante", image: "radiante.webp" }
+    { name: "Ferro", key: "ferro", image: "ferro.png" },
+    { name: "Bronze", key: "bronze", image: "bronze.png" },
+    { name: "Prata", key: "prata", image: "prata.png" },
+    { name: "Ouro", key: "ouro", image: "ouro.png" },
+    { name: "Platina", key: "platina", image: "platina.png" },
+    { name: "Diamante", key: "diamante", image: "diamante.png" },
+    { name: "Ascendente", key: "ascendente", image: "ascendente.png" },
+    { name: "Imortal", key: "imortal", image: "imortal.png" },
+    { name: "Radiante", key: "radiante", image: "radiante.png" }
   ];
 
   const ranks = rankNames.flatMap(function (rank) {
@@ -372,23 +372,36 @@ const db = getFirestore(firebaseApp);
       button.setAttribute("aria-pressed", "false");
       button.setAttribute("aria-label", "Selecionar rank " + rank.name);
 
-      const art = document.createElement("span");
-      art.className = "rank-art";
       const image = document.createElement("img");
-      image.className = "rank-image";
       image.src = "public/images/ranks/" + rank.image;
       image.alt = "Ícone do rank " + rank.name + " de VALORANT";
-      image.width = 64;
-      image.height = 64;
+      image.width = 44;
+      image.height = 44;
       image.decoding = "async";
       image.draggable = false;
-      art.append(image);
 
-      const label = document.createElement("strong");
+      const label = document.createElement("span");
+      label.className = "rank-label";
       label.textContent = rank.name;
-      const tier = document.createElement("small");
-      tier.textContent = rank.tier ? "Tier " + rank.tier : "Único";
-      button.append(art, label, tier);
+
+      button.append(image, label);
+
+      button.addEventListener("click", function () {
+        const isSelected = button.classList.contains("is-selected");
+        elements.rankTrack.querySelectorAll(".rank-option").forEach(function (opt) {
+          opt.classList.remove("is-selected");
+          opt.setAttribute("aria-pressed", "false");
+        });
+        if (!isSelected) {
+          button.classList.add("is-selected");
+          button.setAttribute("aria-pressed", "true");
+          elements.rankTrack.dataset.selectedRank = rank.key;
+        } else {
+          elements.rankTrack.dataset.selectedRank = "all";
+        }
+        renderProducts();
+      });
+
       elements.rankTrack.append(button);
     });
   }
